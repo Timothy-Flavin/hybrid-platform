@@ -12,7 +12,7 @@ setup(
         'gym_platform': ['envs/assets/*.png']
     },
     install_requires=[
-        'gym',
+        'gymnasium',
         'pygame>=1.9.3',
         'numpy>=1.14.0',
     ]

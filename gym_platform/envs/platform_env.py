@@ -7,12 +7,12 @@ June 2018
 """
 
 import numpy as np
-import gym
+import gymnasium as gym
 import pygame
 import os
 from os import path
-from gym import error, spaces, utils
-from gym.utils import seeding
+from gymnasium import error, spaces, utils
+from gymnasium.utils import seeding
 import sys
 __numba = True
 try:
@@ -99,10 +99,10 @@ SCREEN_WIDTH = int(Constants.TOTAL_WIDTH)
 
 
 class PlatformEnv(gym.Env):
-    # metadata = {'render.modes': ['human', 'rgb_array']}
-    metadata = {'render.modes': ['human']}  # cannot use rgb_array at the moment due to frame skip between actions
+    # metadata = {'render_modes': ['human', 'rgb_array']}
+    metadata = {'render_modes': ['human']}  # cannot use rgb_array at the moment due to frame skip between actions
 
-    def __init__(self):
+    def __init__(self, render_mode=None):
         """ Setup environment """
 
         # Entities
@@ -115,8 +115,9 @@ class PlatformEnv(gym.Env):
         self.enemy1 = Enemy(self.platform1)
         self.enemy2 = Enemy(self.platform2)
 
+        self.render_mode = render_mode
         self.np_random = None
-        self.seed()
+        # self.seed() # Handled by reset()
 
         self.states = []
         self.render_states = []  # record internal states for playback, cleared on reset()
@@ -137,10 +138,19 @@ class PlatformEnv(gym.Env):
 
         self.window = None
 
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
+    def reset(self, seed=None, options=None):
+        super().reset(seed=seed)
         self._update_seeds()
-        return [seed]
+        
+        self.xpos = 0.0
+        self.player.reset()
+        self.enemy1.reset()
+        self.enemy2.reset()
+        self.states = []
+        self.render_states = []
+        # Wrapper might expect (obs, info)
+        # Obs is (state, steps) where steps=0
+        return (self.get_state(), 0), {}
 
     def _update_seeds(self):
         self.player.np_random = self.np_random
@@ -214,10 +224,11 @@ class PlatformEnv(gym.Env):
 
         Returns
         -------
-        ob, reward, episode_over, info : tuple
+        ob, reward, terminated, truncated, info : tuple
             ob (object) :
             reward (float) :
-            terminal (bool) :
+            terminated (bool) :
+            truncated (bool) :
             info (dict) :
         """
         # assert self.action_space.contains(action), "%r (%s) invalid" % (action, type(action))
@@ -252,16 +263,8 @@ class PlatformEnv(gym.Env):
 
         state = self.get_state()
         obs = (state, steps)
-        return obs, reward, terminal, {}
-
-    def reset(self):
-        self.xpos = 0.0
-        self.player.reset()
-        self.enemy1.reset()
-        self.enemy2.reset()
-        self.states = []
-        self.render_states = []
-        return self.get_state(), 0
+        truncated = False
+        return obs, reward, terminal, truncated, {}
 
     def _on_platforms(self):
         """ Checks if the player is on any of the platforms. """
@@ -398,28 +401,35 @@ class PlatformEnv(gym.Env):
             enemy.dx]  # 3
         platform_features = self._platform_features(basic_features)
         state = np.concatenate((basic_features, platform_features))
-        scaled_state = self._scale_state(state)
+        scaled_state = self._scale_state(state).astype(np.float32)
         return scaled_state
 
-    def render(self, mode='human', close=False):
-        if close:
-            pygame.display.quit()
-            pygame.quit()
-            self.window = None
-            return
+    def render(self):
+        if self.render_mode is None:
+             gym.logger.warn(
+                "You are calling render method without specifying any render mode. "
+                "You can specify the render_mode at initialization, "
+                f'e.g. gym.make("{self.spec.id}", render_mode="human")'
+            )
+             return
 
         self._initialse_window()
 
-        self._draw_render_states(mode)
+        self._draw_render_states(self.render_mode)
 
-        img = self._get_image()
-        if mode == 'rgb_array':
-            return img
-        # elif mode == 'human':
+        if self.render_mode == 'rgb_array':
+            return self._get_image()
+        # elif self.render_mode == 'human':
         #    from gym.envs.classic_control import rendering
         #    if self.viewer is None:
         #        self.viewer = rendering.SimpleImageViewer(SCREEN_WIDTH, SCREEN_HEIGHT)
         #    self.viewer.imshow(img)
+    
+    def close(self):
+        if self.window is not None:
+             pygame.display.quit()
+             pygame.quit()
+             self.window = None
 
     def _initialse_window(self):
         # initialise visualiser
