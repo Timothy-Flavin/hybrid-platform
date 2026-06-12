@@ -14,11 +14,7 @@ from os import path
 from gymnasium import error, spaces, utils
 from gymnasium.utils import seeding
 import sys
-__numba = True
-try:
-    from numba import jit
-except:
-    __numba = False
+from numba import jit
 
 
 class Constants:
@@ -488,9 +484,16 @@ class Enemy:
         if not self.platform.position[0] < self.position[0] < right:
             self.dx *= -1
         self.dx += self.np_random.normal(0.0, Constants.ENEMY_NOISE * dt)
-        self.dx = np.clip(self.dx, -self.speed, self.speed)
+        if self.dx < -self.speed:
+            self.dx = -self.speed
+        elif self.dx > self.speed:
+            self.dx = self.speed
         self.position[0] += self.dx * dt
-        self.position[0] = np.clip(self.position[0], self.platform.position[0], right)
+        left = self.platform.position[0]
+        if self.position[0] < left:
+            self.position[0] = left
+        elif self.position[0] > right:
+            self.position[0] = right
 
 
 class Player:
@@ -514,21 +517,26 @@ class Player:
     def update(self, dt):
         """ Update the position and velocity. """
         self.position += self.velocity * dt
-        self.position[0] = np.clip(self.position[0], 0.0, Constants.TOTAL_WIDTH)
+        if self.position[0] < 0.0:
+            self.position[0] = 0.0
+        elif self.position[0] > Constants.TOTAL_WIDTH:
+            self.position[0] = Constants.TOTAL_WIDTH
         self.velocity[0] *= Constants.VELOCITY_DECAY
 
     def accelerate(self, accel, dt=Constants.DT):
         """ Applies a power to the entity in direction theta. """
-        accel = np.clip(accel, (-Constants.MAX_DDX, -Constants.MAX_DDY), (Constants.MAX_DDX, Constants.MAX_DDY))
-        self.velocity += accel * dt
+        ax = max(-Constants.MAX_DDX, min(Constants.MAX_DDX, float(accel[0])))
+        ay = max(-Constants.MAX_DDY, min(Constants.MAX_DDY, float(accel[1])))
+        self.velocity[0] += ax * dt
+        self.velocity[1] += ay * dt
         self.velocity[0] -= abs(self.np_random.normal(0.0, Constants.PLAYER_NOISE * dt))
-        self.velocity = np.clip(self.velocity, (-Constants.MAX_DX, -Constants.MAX_DY),
-                                (Constants.MAX_DX, Constants.MAX_DY))
-        self.velocity[0] = max(self.velocity[0], 0.0)
+        self.velocity[0] = max(0.0, min(Constants.MAX_DX, self.velocity[0]))
+        self.velocity[1] = max(-Constants.MAX_DY, min(Constants.MAX_DY, self.velocity[1]))
 
     def ground_bound(self):
         """ Bound dx while on the ground. """
-        self.velocity[0] = np.clip(self.velocity[0], 0.0, Constants.MAX_DX_ON)
+        if self.velocity[0] > Constants.MAX_DX_ON:
+            self.velocity[0] = Constants.MAX_DX_ON
 
     def run(self, power, dt):
         """ Run for a given power and time. """
@@ -543,7 +551,7 @@ class Player:
         """ Jump to a specific position. """
         time = 2.0 * dy0 / Constants.GRAVITY + 1.0
         dx0 = diffx / time - self.velocity[0]
-        dx0 = np.clip(dx0, -Constants.MAX_DDX, Constants.MAX_DY - dy0)
+        dx0 = max(-Constants.MAX_DDX, min(Constants.MAX_DY - dy0, dx0))
         if dev > 0:
             noise = -abs(self.np_random.normal(0.0, dev, 2))
         else:
@@ -603,18 +611,7 @@ class Player:
         return _colliding(self.size, self.position, other.size, other.position)
 
 
-if __numba:
-    @jit(nogil=True, nopython=True)
-    def _colliding(self_size, self_position, other_size, other_position):
-        precorner = other_position - self_size
-        postcorner = other_position + other_size
-        collide = np.all(precorner < self_position)
-        collide = collide and np.all(self_position < postcorner)
-        return collide
-else:
-    def _colliding(self_size, self_position, other_size, other_position):
-        precorner = other_position - self_size
-        postcorner = other_position + other_size
-        collide = np.all(precorner < self_position)
-        collide = collide and np.all(self_position < postcorner)
-        return collide
+@jit(nogil=True, nopython=True)
+def _colliding(self_size, self_position, other_size, other_position):
+    return (other_position[0] - self_size[0] < self_position[0] < other_position[0] + other_size[0] and
+            other_position[1] - self_size[1] < self_position[1] < other_position[1] + other_size[1])

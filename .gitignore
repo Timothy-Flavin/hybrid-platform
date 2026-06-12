@@ -2,3 +2,4 @@
 __pycache__
 gym_platform.egg-info
 build
+.venv
